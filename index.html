@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Waste Analysis Dashboard 2026</title>
+    <link rel="stylesheet" href="index.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="waste_data.js"></script>
+</head>
+<body>
+    <div id="app">
+        <header>
+            <div>
+                <h1>WASTE PERFORMANCE</h1>
+                <p style="color: var(--text-dim)">Waste Process Analysis</p>
+            </div>
+            <div id="last-update" style="font-size: 0.9rem; color: var(--text-dim)">March 2026 Analysis</div>
+        </header>
+
+        <div class="summary-cards">
+            <div class="card">
+                <h3>OVERALL WASTE %</h3>
+                <div class="value" id="overall-pct">0.00%</div>
+                <div class="sub-value">Corporate Target: < 2.0%</div>
+            </div>
+            <div class="card">
+                <h3>TOTAL WASTE SHEET</h3>
+                <div class="value" id="total-waste">0</div>
+                <div class="sub-value">Unit: Sheets (Process)</div>
+            </div>
+            <div class="card">
+                <h3>TOTAL INPUT SHEET</h3>
+                <div class="value" id="total-sheet">0</div>
+                <div class="sub-value">Standard production volume</div>
+            </div>
+            <div class="card">
+                <h3>TOTAL CUSTOMERS</h3>
+                <div class="value" id="total-cust">0</div>
+                <div class="sub-value">Active in period</div>
+            </div>
+        </div>
+
+        <div class="filters">
+            <div class="filter-group">
+                <label>Pilih Tahun</label>
+                <select id="year-filter">
+                    <option value="all">Semua Tahun</option>
+                </select>
+            </div>
+            
+            <div class="filter-group">
+                <label>Pilih Bulan</label>
+                <select id="month-filter">
+                    <option value="all">Semua Bulan</option>
+                </select>
+            </div>
+
+            <div class="filter-group" style="flex:1">
+                <label>Cari Customer</label>
+                <input type="text" id="search-cust" list="cust-list-options" placeholder="Ketik nama customer...">
+                <datalist id="cust-list-options">
+                    <!-- Dynamic options -->
+                </datalist>
+            </div>
+            <button class="btn-reset" id="reset-filters">Reset Filters</button>
+        </div>
+
+        <div class="chart-section" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem">
+            <div class="card" style="height: 350px; padding: 1.5rem">
+                <h3 style="margin-bottom: 0.5rem; color: #00d2ff">Weekly Waste Trend</h3>
+                <div style="height: calc(100% - 2rem)">
+                    <canvas id="weeklyTrendChart"></canvas>
+                </div>
+            </div>
+            <div class="card" style="height: 350px; padding: 1.5rem">
+                <h3 style="margin-bottom: 0.5rem; color: #00f260">Monthly Waste Trend</h3>
+                <div style="height: calc(100% - 2rem)">
+                    <canvas id="monthlyTrendChart"></canvas>
+                </div>
+            </div>
+            <div class="card" style="height: 350px; padding: 1.5rem">
+                <h3 style="margin-bottom: 0.5rem; color: #f2a600">Order Fulfillment Rate</h3>
+                <div style="height: calc(100% - 2rem)">
+                    <canvas id="fulfillmentChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <div class="customer-list" id="customer-list-box">
+                <h3 style="margin-bottom: 1.5rem">All Customers</h3>
+                <!-- List will be injected here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Details Modal -->
+    <div class="modal-overlay" id="modal-overlay">
+        <div class="modal">
+            <span class="close-modal" id="close-modal">&times;</span>
+            <div id="modal-content">
+                <h2 id="modal-cust-name">Customer Name</h2>
+                <div class="summary-cards" style="margin-top: 1.5rem">
+                    <div class="card" style="background: rgba(255,255,255,0.02)">
+                        <h3>Waste %</h3>
+                        <div class="value" id="modal-cust-pct">0.00%</div>
+                    </div>
+                </div>
+
+                <div class="filter-group" style="margin-top: 1.5rem">
+                    <label>Cari Nama Item</label>
+                    <input type="text" id="modal-item-search" placeholder="Type to filter items...">
+                </div>
+
+                <div id="item-trend-section" style="display:none; margin-top: 2rem; background: rgba(0,210,255,0.05); padding: 1.5rem; border-radius: 12px; border: 1px solid rgba(0,210,255,0.1)">
+                    <div style="display:flex; justify-content: space-between; align-items: center; margin-bottom: 1rem">
+                        <h3 id="item-trend-title" style="margin:0; color: #00d2ff">Item Trend Analysis</h3>
+                        <button onclick="document.getElementById('item-trend-section').style.display='none'" style="background:none; border:none; color:var(--text-dim); cursor:pointer">Close Trend</button>
+                    </div>
+                    <div style="height: 250px">
+                        <canvas id="itemTrendChart"></canvas>
+                    </div>
+                </div>
+
+                <h3 style="margin-top: 2rem">Waste per Item (Klik nama untuk lihat trend)</h3>
+                <div class="item-grid" id="item-grid">
+                    <!-- Items will be injected here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const rawCustomers = typeof wasteData !== 'undefined' ? wasteData : [];
+            let rawTrend = typeof wasteTrend !== 'undefined' ? wasteTrend : [];
+            const updateTime = typeof lastUpdated !== 'undefined' ? lastUpdated : 'Unknown';
+            
+            let currentModalState = {
+                type: '', // 'customer' or 'monthly'
+                subType: '', // 'waste' or 'fulfillment'
+                data: [],
+                month: ''
+            };
+            if (rawCustomers.length === 0) {
+                console.error("wasteData not found or empty!");
+                document.getElementById('app').innerHTML += '<div style="color:var(--accent); padding:2rem; text-align:center">Error: No waste data found. Please run the extraction script.</div>';
+                return;
+            }
+
+            document.getElementById('last-update').textContent = 'Last sync: ' + updateTime;
+
+            let filteredCustomers = [...rawCustomers];
+            let activeTrend = [...rawTrend];
+            let weeklyChartInstance = null;
+            let monthlyChartInstance = null;
+            let fulfillmentChartInstance = null;
+            let itemTrendChartInstance = null;
+            let currentOpenCustomer = null;
+
+            // DOM Elements
+            const yearFilter = document.getElementById('year-filter');
+            const monthFilter = document.getElementById('month-filter');
+            const searchInput = document.getElementById('search-cust');
+            const modalSearchInput = document.getElementById('modal-item-search');
+            const datalist = document.getElementById('cust-list-options');
+            const resetBtn = document.getElementById('reset-filters');
+
+            // Populate initial Customer Datalist
+            function updateCustomerDatalist() {
+                datalist.innerHTML = '';
+                const sorted = [...rawCustomers].sort((a,b) => a.customer.localeCompare(b.customer));
+                sorted.forEach(c => {
+                    const opt = document.createElement('option');
+                    opt.value = c.customer;
+                    datalist.appendChild(opt);
+                });
+            }
+            updateCustomerDatalist();
+
+            // Populate Year and Month filters
+            function populateTimeFilters() {
+                const years = new Set();
+                const months = new Set();
+                
+                rawTrend.forEach(day => {
+                    if (day.year) years.add(day.year);
+                    if (day.month) months.add(day.month);
+                });
+
+                Array.from(years).sort().forEach(y => {
+                    const opt = document.createElement('option');
+                    opt.value = opt.innerText = y;
+                    yearFilter.appendChild(opt);
+                });
+
+                // Mapping of month names for sorting if possible, or just alphabetically
+                const monthOrder = ["JANUARI", "FEBRUARI", "MARET", "APRIL", "MEI", "JUNI", 
+                                  "JULI", "AGUSTUS", "SEPTEMBER", "OKTOBER", "NOVEMBER", "DESEMBER"];
+                
+                Array.from(months).sort((a, b) => {
+                    const ai = monthOrder.indexOf(a.toUpperCase());
+                    const bi = monthOrder.indexOf(b.toUpperCase());
+                    if (ai !== -1 && bi !== -1) return ai - bi;
+                    return a.localeCompare(b);
+                }).forEach(m => {
+                    const opt = document.createElement('option');
+                    opt.value = opt.innerText = m;
+                    monthFilter.appendChild(opt);
+                });
+            }
+            populateTimeFilters();
+
+            function applyFilters() {
+                const selYear = yearFilter.value;
+                const selMonth = monthFilter.value;
+                const search = searchInput.value.toLowerCase();
+
+                let tempTrend = rawTrend.filter(day => {
+                    if (selYear !== 'all' && day.year != selYear) return false;
+                    if (selMonth !== 'all' && day.month != selMonth) return false;
+                    return true;
+                });
+
+                let tempCusts = [];
+                const custTotals = {};
+
+                tempTrend.forEach(day => {
+                    day.customers.forEach(c => {
+                        if (search && !c.cust.toLowerCase().includes(search)) return;
+                        
+                        if (!custTotals[c.cust]) {
+                            custTotals[c.cust] = { waste: 0, sheet: 0, order: 0, transfer: 0, itemAgg: {} };
+                        }
+                        const node = custTotals[c.cust];
+                        node.waste += (c.waste || 0);
+                        node.sheet += (c.sheet || 0);
+                        node.order += (c.order || 0);
+                        node.transfer += (c.transfer || 0);
+
+                        if (c.items) {
+                            c.items.forEach(it => {
+                                if (!node.itemAgg[it.name]) node.itemAgg[it.name] = { waste: 0, sheet: 0, kiks: {} };
+                                
+                                it.kiks.forEach(k => {
+                                    if (!node.itemAgg[it.name].kiks[k.kik]) node.itemAgg[it.name].kiks[k.kik] = { waste: 0, sheet: 0 };
+                                    node.itemAgg[it.name].kiks[k.kik].waste += k.waste;
+                                    node.itemAgg[it.name].kiks[k.kik].sheet += k.sheet;
+                                    
+                                    node.itemAgg[it.name].waste += k.waste;
+                                    node.itemAgg[it.name].sheet += k.sheet;
+                                });
+                            });
+                        }
+                    });
+                });
+
+                for (let name in custTotals) {
+                    const t = custTotals[name];
+                    const pct = t.sheet > 0 ? (t.waste / t.sheet * 100).toFixed(2) : 0;
+                    
+                    const periodItems = Object.keys(t.itemAgg).map(itName => {
+                        const itVal = t.itemAgg[itName];
+                        const kikList = Object.keys(itVal.kiks).map(kN => {
+                            return { kik: kN, waste: itVal.kiks[kN].waste, sheet: itVal.kiks[kN].sheet };
+                        });
+
+                        return {
+                            name: itName,
+                            waste: itVal.waste,
+                            sheet: itVal.sheet,
+                            kiks: kikList,
+                            percentage: itVal.sheet > 0 ? parseFloat((itVal.waste / itVal.sheet * 100).toFixed(2)) : 0
+                        };
+                    }).sort((a,b) => b.percentage - a.percentage);
+
+                    tempCusts.push({
+                        customer: name,
+                        totalWaste: t.waste,
+                        totalSheet: t.sheet,
+                        totalOrder: t.order,
+                        totalTransfer: t.transfer,
+                        percentage: parseFloat(pct),
+                        items: periodItems
+                    });
+                }
+
+                tempCusts.sort((a, b) => b.percentage - a.percentage);
+                filteredCustomers = tempCusts;
+                activeTrend = tempTrend;
+                updateDashboard();
+            }
+
+            function updateDashboard() {
+                initSummary();
+                renderWeeklyChart();
+                renderMonthlyChart();
+                renderFulfillmentChart();
+                renderList();
+            }
+
+            function initSummary() {
+                let totalW = 0, totalS = 0;
+                filteredCustomers.forEach(c => {
+                    totalW += (c.totalWaste || 0);
+                    totalS += (c.totalSheet || 0);
+                });
+                const overall = totalS > 0 ? (totalW / totalS * 100).toFixed(2) : 0;
+                document.getElementById('overall-pct').textContent = overall + '%';
+                document.getElementById('total-waste').textContent = Math.round(totalW).toLocaleString();
+                document.getElementById('total-sheet').textContent = Math.round(totalS).toLocaleString();
+                document.getElementById('total-cust').textContent = filteredCustomers.length;
+                const pctEl = document.getElementById('overall-pct');
+                if (overall > 5) pctEl.style.color = '#ff4b2b';
+                else if (overall > 2) pctEl.style.color = '#ffcc00';
+                else pctEl.style.color = '#00f260';
+            }
+
+            function renderWeeklyChart() {
+                const ctx = document.getElementById('weeklyTrendChart').getContext('2d');
+                const search = searchInput.value.toLowerCase();
+                
+                const weeklyMap = {};
+                activeTrend.forEach(day => {
+                    const w = day.week || "Other";
+                    if (!weeklyMap[w]) weeklyMap[w] = { waste: 0, sheet: 0 };
+                    day.customers.forEach(c => {
+                        if (search && !c.cust.toLowerCase().includes(search)) return;
+                        weeklyMap[w].waste += (c.waste || 0);
+                        weeklyMap[w].sheet += (c.sheet || 0);
+                    });
+                });
+
+                const labels = Object.keys(weeklyMap).sort((a,b) => parseInt(a) - parseInt(b)).map(w => "W" + w);
+                const dataPoints = Object.keys(weeklyMap).sort((a,b) => parseInt(a) - parseInt(b)).map(w => {
+                    const v = weeklyMap[w];
+                    return v.sheet > 0 ? (v.waste / v.sheet * 100).toFixed(2) : 0;
+                });
+
+                if (weeklyChartInstance) weeklyChartInstance.destroy();
+                weeklyChartInstance = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Weekly Waste %',
+                            data: dataPoints,
+                            borderColor: '#00d2ff',
+                            backgroundColor: 'rgba(0, 210, 255, 0.1)',
+                            fill: true,
+                            tension: 0.3,
+                            pointRadius: 4,
+                            borderWidth: 2
+                        }]
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        plugins: { legend: { display: false } },
+                        scales: {
+                            y: { 
+                                beginAtZero: true, 
+                                grid: { color: 'rgba(255,255,255,0.15)' }, 
+                                ticks: { color: '#ffffff', font: { weight: 'bold' }, callback: (v) => v + '%' } 
+                            },
+                            x: { 
+                                grid: { display: false }, 
+                                ticks: { color: '#ffffff', font: { size: 10, weight: 'bold' } } 
+                            }
+                        }
+                    }
+                });
+            }
+
+            function renderMonthlyChart() {
+                const ctx = document.getElementById('monthlyTrendChart').getContext('2d');
+                const search = searchInput.value.toLowerCase();
+                
+                const monthOrder = ["JANUARI", "FEBRUARI", "MARET", "APRIL", "MEI", "JUNI", 
+                                  "JULI", "AGUSTUS", "SEPTEMBER", "OKTOBER", "NOVEMBER", "DESEMBER"];
+                
+                const monthlyMap = {};
+                activeTrend.forEach(day => {
+                    const m = day.month || "Other";
+                    if (!monthlyMap[m]) monthlyMap[m] = { waste: 0, sheet: 0 };
+                    day.customers.forEach(c => {
+                        if (search && !c.cust.toLowerCase().includes(search)) return;
+                        monthlyMap[m].waste += (c.waste || 0);
+                        monthlyMap[m].sheet += (c.sheet || 0);
+                    });
+                });
+
+                const labels = Object.keys(monthlyMap).sort((a, b) => {
+                    return monthOrder.indexOf(a.toUpperCase()) - monthOrder.indexOf(b.toUpperCase());
+                });
+
+                const dataPoints = labels.map(m => {
+                    const v = monthlyMap[m];
+                    return v.sheet > 0 ? (v.waste / v.sheet * 100).toFixed(2) : 0;
+                });
+
+                if (monthlyChartInstance) monthlyChartInstance.destroy();
+                monthlyChartInstance = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Monthly Waste %',
+                            data: dataPoints,
+                            backgroundColor: 'rgba(0, 242, 96, 0.2)',
+                            borderColor: '#00f260',
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        onClick: (e, elements) => {
+                            if (elements.length > 0) {
+                                const index = elements[0].index;
+                                const label = monthlyChartInstance.data.labels[index];
+                                showMonthlyAnalysis(label, 'waste');
+                            }
+                        },
+                        plugins: { legend: { display: false } },
+                        scales: {
+                            y: { 
+                                beginAtZero: true, 
+                                grid: { color: 'rgba(255,255,255,0.15)' }, 
+                                ticks: { color: '#ffffff', font: { weight: 'bold' }, callback: (v) => v + '%' } 
+                            },
+                            x: { 
+                                grid: { display: false }, 
+                                ticks: { color: '#ffffff', font: { size: 10, weight: 'bold' } } 
+                            }
+                        }
+                    }
+                });
+            }
+
+            function renderFulfillmentChart() {
+                const ctx = document.getElementById('fulfillmentChart').getContext('2d');
+                const search = searchInput.value.toLowerCase();
+                
+                const monthOrder = ["JANUARI", "FEBRUARI", "MARET", "APRIL", "MEI", "JUNI", 
+                                  "JULI", "AGUSTUS", "SEPTEMBER", "OKTOBER", "NOVEMBER", "DESEMBER"];
+                
+                const monthlyMap = {};
+                activeTrend.forEach(day => {
+                    const m = day.month || "Other";
+                    if (!monthlyMap[m]) monthlyMap[m] = { order: 0, transfer: 0 };
+                    day.customers.forEach(c => {
+                        if (search && !c.cust.toLowerCase().includes(search)) return;
+                        monthlyMap[m].order += (c.order || 0);
+                        monthlyMap[m].transfer += (c.transfer || 0);
+                    });
+                });
+
+                const labels = Object.keys(monthlyMap).sort((a, b) => {
+                    return monthOrder.indexOf(a.toUpperCase()) - monthOrder.indexOf(b.toUpperCase());
+                });
+
+                const dataPoints = labels.map(m => {
+                    const v = monthlyMap[m];
+                    return v.order > 0 ? (v.transfer / v.order * 100).toFixed(2) : 0;
+                });
+
+                if (fulfillmentChartInstance) fulfillmentChartInstance.destroy();
+                fulfillmentChartInstance = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Fulfillment Rate %',
+                            data: dataPoints,
+                            backgroundColor: 'rgba(242, 166, 0, 0.2)',
+                            borderColor: '#f2a600',
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        onClick: (e, elements) => {
+                            if (elements.length > 0) {
+                                const index = elements[0].index;
+                                const label = fulfillmentChartInstance.data.labels[index];
+                                showMonthlyAnalysis(label, 'fulfillment');
+                            }
+                        },
+                        plugins: { 
+                            legend: { display: false },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        return 'Rate: ' + context.raw + '%';
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            y: { 
+                                beginAtZero: true, 
+                                max: 100,
+                                grid: { color: 'rgba(255,255,255,0.15)' }, 
+                                ticks: { color: '#ffffff', font: { weight: 'bold' }, callback: (v) => v + '%' } 
+                            },
+                            x: { 
+                                grid: { display: false }, 
+                                ticks: { color: '#ffffff', font: { size: 10, weight: 'bold' } } 
+                            }
+                        }
+                    }
+                });
+            }
+
+            window.showMonthlyAnalysis = function(monthLabel, type) {
+                const itemMap = {}; 
+                const search = searchInput.value.toLowerCase();
+                
+                let totalMonthlyWaste = 0;
+                let totalMonthlySheet = 0;
+                let totalMonthlyOrder = 0;
+                let totalMonthlyTransfer = 0;
+                activeTrend.forEach(day => {
+                    if (day.month === monthLabel) {
+                        day.customers.forEach(c => {
+                            if (search && !c.cust.toLowerCase().includes(search)) return;
+                            
+                            c.items.forEach(it => {
+                                if (!itemMap[it.name]) {
+                                    itemMap[it.name] = { name: it.name, waste: 0, sheet: 0, order: 0, transfer: 0, kiks: [] };
+                                }
+                                const node = itemMap[it.name];
+                                const itemWaste = (it.kiks ? it.kiks.reduce((sum, k) => sum + k.waste, 0) : 0);
+                                const itemSheet = (it.kiks ? it.kiks.reduce((sum, k) => sum + k.sheet, 0) : 0);
+                                node.waste += itemWaste;
+                                node.sheet += itemSheet;
+                                node.order += (it.order || 0);
+                                node.transfer += (it.transfer || 0);
+                                totalMonthlyWaste += itemWaste;
+                                totalMonthlySheet += itemSheet;
+                                totalMonthlyOrder += (it.order || 0);
+                                totalMonthlyTransfer += (it.transfer || 0);
+                                
+                                // Accumulate KIKs for trend
+                                if (it.kiks) {
+                                    it.kiks.forEach(k => {
+                                        let existingKik = node.kiks.find(nk => nk.kik === k.kik);
+                                        if (existingKik) {
+                                            existingKik.waste += k.waste;
+                                            existingKik.sheet += k.sheet;
+                                            existingKik.order = (existingKik.order || 0) + (k.order || 0);
+                                            existingKik.transfer = (existingKik.transfer || 0) + (k.transfer || 0);
+                                        } else {
+                                            node.kiks.push({ ...k });
+                                        }
+                                    });
+                                }
+                            });
+                        });
+                    }
+                });
+
+                currentModalState = {
+                    type: 'monthly',
+                    subType: type,
+                    data: Object.values(itemMap),
+                    itemMap: itemMap,
+                    month: monthLabel,
+                    totalWaste: totalMonthlyWaste,
+                    totalSheet: totalMonthlySheet,
+                    totalOrder: totalMonthlyOrder,
+                    totalTransfer: totalMonthlyTransfer
+                };
+
+                modalSearchInput.value = '';
+                renderModalItems();
+            }
+
+            function renderModalItems() {
+                const searchText = modalSearchInput.value.toLowerCase();
+                const grid = document.getElementById('item-grid');
+                const titleEl = document.getElementById('modal-cust-name');
+                const pctLabelEl = document.getElementById('modal-cust-pct');
+                const state = currentModalState;
+                
+                grid.innerHTML = '';
+                
+                // Update Modal Header
+                if (state.type === 'monthly') {
+                    if (state.subType === 'waste') {
+                        const totalPct = state.totalSheet > 0 ? (state.totalWaste / state.totalSheet * 100).toFixed(2) : 0;
+                        titleEl.innerText = `Highest Waste Items - ${state.month}`;
+                        pctLabelEl.innerText = `Month Waste: ${totalPct}% (${Math.round(state.totalWaste).toLocaleString()} pcs)`;
+                    } else {
+                        const totalRate = state.totalOrder > 0 ? (state.totalTransfer / state.totalOrder * 100).toFixed(2) : 0;
+                        titleEl.innerText = `Lowest Fulfillment Items - ${state.month}`;
+                        pctLabelEl.innerText = `Month Fulfillment: ${totalRate}% (${Math.round(state.totalTransfer).toLocaleString()} / ${Math.round(state.totalOrder).toLocaleString()})`;
+                    }
+                    pctLabelEl.style.color = 'var(--text-dim)';
+                } else if (state.type === 'customer') {
+                    titleEl.innerText = state.name;
+                    pctLabelEl.innerText = state.percentage + '%';
+                    pctLabelEl.style.color = getPctColor(state.percentage);
+                }
+
+                let displayItems = [];
+                if (state.type === 'monthly') {
+                    if (state.subType === 'waste') {
+                        displayItems = state.data.filter(i => i.sheet > 0)
+                                       .map(i => ({ ...i, pct: parseFloat((i.waste / i.sheet * 100).toFixed(2)) }))
+                                       .filter(i => i.name.toLowerCase().includes(searchText))
+                                       .sort((a,b) => b.pct - a.pct)
+                                       .slice(0, 50);
+                    } else {
+                        displayItems = state.data.filter(i => i.order > 0)
+                                       .map(i => ({ ...i, pct: parseFloat((i.transfer / i.order * 100).toFixed(2)) }))
+                                       .filter(i => i.name.toLowerCase().includes(searchText))
+                                       .sort((a,b) => a.pct - b.pct)
+                                       .slice(0, 50);
+                    }
+                } else if (state.type === 'customer') {
+                    displayItems = state.data.filter(i => i.name.toLowerCase().includes(searchText))
+                                       .sort((a,b) => b.percentage - a.percentage);
+                }
+
+                if (displayItems.length === 0) {
+                    grid.innerHTML = '<div style="color:var(--text-dim); padding: 2rem; text-align: center; grid-column: 1/-1">No items found matching search.</div>';
+                    return;
+                }
+
+                displayItems.forEach(item => {
+                    const card = document.createElement('div');
+                    card.className = 'item-card';
+                    let color, label, onClickAttr;
+                    
+                    if (state.type === 'monthly') {
+                        color = state.subType === 'waste' ? getPctColor(item.pct) : (item.pct < 95 ? '#ff4b2b' : (item.pct < 98 ? '#ffcc00' : '#00f260'));
+                        label = state.subType === 'waste' ? 
+                            `Waste: ${Math.round(item.waste).toLocaleString()} pcs (${item.pct}%)` : 
+                            `Rate: ${item.pct}% (${Math.round(item.transfer).toLocaleString()} / ${Math.round(item.order).toLocaleString()})`;
+                        onClickAttr = `onclick="event.stopPropagation(); showItemTrendFromMap('${item.name.replace(/'/g, "\\'")}', '${state.subType}')" style="cursor:pointer;"`;
+                    } else {
+                        color = getPctColor(item.percentage);
+                        label = `Waste: ${Math.round(item.waste).toLocaleString()} / ${Math.round(item.sheet).toLocaleString()} (${item.percentage}%)`;
+                        onClickAttr = `onclick="event.stopPropagation(); showItemTrend('${item.name.replace(/'/g, "\\'")}')" style="cursor:pointer;"`;
+                    }
+
+                    card.innerHTML = `
+                        <div class="item-name" style="color: #00d2ff; text-decoration: underline;" ${onClickAttr}>${item.name}</div>
+                        <div class="progress-bar">
+                            <div class="progress-fill" style="width: ${state.subType === 'waste' || state.type === 'customer' ? Math.min((item.pct || item.percentage) * 5, 100) : (item.pct || item.percentage)}%; background: ${color}"></div>
+                        </div>
+                        <div style="font-size: 0.85rem; color: var(--text-dim); margin-top: 0.5rem; display:flex; justify-content:space-between">
+                            <span>${label}</span>
+                        </div>
+                    `;
+                    grid.appendChild(card);
+                });
+
+                document.getElementById('modal-overlay').style.display = 'flex';
+                document.body.style.overflow = 'hidden';
+            }
+
+            window.showItemTrendFromMap = function(itemName, type) {
+                const section = document.getElementById('item-trend-section');
+                section.style.display = 'block';
+                document.getElementById('item-trend-title').innerText = `${type === 'waste' ? 'Waste %' : 'Fulfillment %'} Trend per KIK: ${itemName}`;
+                
+                const itemData = currentModalState.itemMap ? currentModalState.itemMap[itemName] : null;
+                if (!itemData || !itemData.kiks) return;
+
+                const sortedKiks = itemData.kiks.sort((a,b) => a.kik.localeCompare(b.kik));
+                const labels = sortedKiks.map(k => k.kik.split('-').pop());
+                const fullLabels = sortedKiks.map(k => k.kik);
+                const dataPoints = sortedKiks.map(k => {
+                    if (type === 'waste') {
+                        return k.sheet > 0 ? (k.waste / k.sheet * 100).toFixed(2) : 0;
+                    } else {
+                        return k.order > 0 ? (k.transfer / k.order * 100).toFixed(2) : 0;
+                    }
+                });
+
+                const ctx = document.getElementById('itemTrendChart').getContext('2d');
+                if (itemTrendChartInstance) itemTrendChartInstance.destroy();
+                itemTrendChartInstance = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: type === 'waste' ? 'Waste % per KIK' : 'Fulfillment % per KIK',
+                            data: dataPoints,
+                            backgroundColor: dataPoints.map(v => {
+                                if (type === 'waste') return v > 5 ? 'rgba(255, 75, 43, 0.4)' : 'rgba(0, 210, 255, 0.4)';
+                                return v < 95 ? 'rgba(255, 75, 43, 0.4)' : 'rgba(0, 210, 255, 0.4)';
+                            }),
+                            borderColor: dataPoints.map(v => {
+                                if (type === 'waste') return v > 5 ? '#ff4b2b' : '#00d2ff';
+                                return v < 95 ? '#ff4b2b' : '#00d2ff';
+                            }),
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        indexAxis: 'y',
+                        scales: {
+                            y: { grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { color: '#ffffff', font: { size: 10 } } },
+                            x: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { color: '#ffffff', callback: v => v + '%' } }
+                        },
+                        plugins: { 
+                            legend: { display: false },
+                            tooltip: { callbacks: { title: (ctx) => fullLabels[ctx[0].dataIndex] } }
+                        }
+                    }
+                });
+            };
+
+            function renderList() {
+                const list = document.getElementById('customer-list-box');
+                list.innerHTML = `<h3 style="margin-bottom: 1.5rem">Customer Performance (${filteredCustomers.length})</h3>`;
+                if (filteredCustomers.length === 0) {
+                    list.innerHTML += '<div style="color:var(--text-dim); text-align:center; padding:2rem">No results matching filters</div>';
+                    return;
+                }
+                filteredCustomers.forEach(c => {
+                    const div = document.createElement('div');
+                    div.className = 'customer-item';
+                    div.innerHTML = `
+                        <div class="customer-info">
+                            <span class="customer-name">${c.customer}</span>
+                            <span class="customer-stats">${Math.round(c.totalWaste || 0).toLocaleString()} / ${Math.round(c.totalSheet || 0).toLocaleString()} total</span>
+                        </div>
+                        <div class="customer-pct" style="color: ${getPctColor(c.percentage)}">${c.percentage}%</div>
+                    `;
+                    div.onclick = () => openModal(c);
+                    list.appendChild(div);
+                });
+            }
+
+            function openModal(customer) {
+                if (!customer) return;
+                currentOpenCustomer = customer;
+                document.getElementById('item-trend-section').style.display = 'none';
+                
+                currentModalState = {
+                    type: 'customer',
+                    subType: 'waste',
+                    name: customer.customer,
+                    percentage: customer.percentage,
+                    data: Array.isArray(customer.items) ? customer.items : []
+                };
+
+                modalSearchInput.value = '';
+                renderModalItems();
+            }
+
+            window.showItemTrend = function(itemName) {
+                const section = document.getElementById('item-trend-section');
+                section.style.display = 'block';
+                document.getElementById('item-trend-title').innerText = `Trend per KIK: ${itemName}`;
+                
+                // Find item in currentOpenCustomer
+                const itemData = currentOpenCustomer.items.find(i => i.name === itemName);
+                if (!itemData || !itemData.kiks) return;
+
+                const sortedKiks = itemData.kiks.sort((a,b) => a.kik.localeCompare(b.kik));
+                const labels = sortedKiks.map(k => k.kik.split('-').pop()); // last part of KIK
+                const fullLabels = sortedKiks.map(k => k.kik);
+                const dataPoints = sortedKiks.map(k => {
+                    return k.sheet > 0 ? (k.waste / k.sheet * 100).toFixed(2) : 0;
+                });
+
+                const ctx = document.getElementById('itemTrendChart').getContext('2d');
+                if (itemTrendChartInstance) itemTrendChartInstance.destroy();
+                itemTrendChartInstance = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Waste % per KIK',
+                            data: dataPoints,
+                            backgroundColor: dataPoints.map(v => v > 5 ? 'rgba(255, 75, 43, 0.4)' : 'rgba(0, 210, 255, 0.4)'),
+                            borderColor: dataPoints.map(v => v > 5 ? '#ff4b2b' : '#00d2ff'),
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        indexAxis: 'y', // Horizontal bars for many KIKs
+                        scales: {
+                            y: { 
+                                grid: { color: 'rgba(255,255,255,0.1)' },
+                                ticks: { color: '#ffffff', font: { size: 10 } } 
+                            },
+                            x: { 
+                                beginAtZero: true,
+                                grid: { color: 'rgba(255,255,255,0.1)' },
+                                ticks: { color: '#ffffff', callback: v => v + '%' } 
+                            }
+                        },
+                        plugins: { 
+                            legend: { display: false },
+                            tooltip: {
+                                callbacks: {
+                                    title: (ctx) => fullLabels[ctx[0].dataIndex]
+                                }
+                            }
+                        }
+                    }
+                });
+            };
+
+            function getPctColor(p) {
+                if (p > 5) return '#ff4b2b';
+                if (p > 2) return '#ffcc00';
+                return '#00f260';
+            }
+
+            // Events
+            yearFilter.addEventListener('change', applyFilters);
+            monthFilter.addEventListener('change', applyFilters);
+            searchInput.addEventListener('input', applyFilters);
+            modalSearchInput.addEventListener('input', renderModalItems);
+
+            resetBtn.onclick = () => {
+                yearFilter.value = 'all';
+                monthFilter.value = 'all';
+                searchInput.value = '';
+                applyFilters();
+            };
+
+            document.getElementById('close-modal').onclick = () => {
+                document.getElementById('modal-overlay').style.display = 'none';
+                document.body.style.overflow = 'auto';
+            };
+
+            document.getElementById('modal-overlay').onclick = (e) => {
+                if (e.target === document.getElementById('modal-overlay')) {
+                    document.getElementById('close-modal').click();
+                }
+            };
+
+            // Initial load
+            applyFilters();
+        });
+    </script>
+
+
+</body>
+</html>
+<!-- TEST -->
